@@ -57,9 +57,8 @@ static __inline int trn_rewrite_remote_mac(struct transit_packet *pkt)
 
 	struct endpoint_t *remote_ep;
 	struct endpoint_key_t epkey;
-	epkey.tunip[0] = 0;
-	epkey.tunip[1] = 0;
-	epkey.tunip[2] = pkt->ip->daddr;
+	epkey.vni = 0;
+	epkey.ip = pkt->ip->daddr;
 	/* Get the remote_mac address based on the value of the outer dest IP */
 	remote_ep = bpf_map_lookup_elem(&endpoints_map, &epkey);
 
@@ -88,9 +87,8 @@ static __inline void trn_update_ep_host_cache(struct transit_packet *pkt,
 	struct endpoint_key_t src_epkey;
 
 	if (pkt->rts_opt->type == TRN_GNV_RTS_OPT_TYPE) {
-		__builtin_memcpy(&src_epkey.tunip[0], &tunnel_id,
-				 sizeof(tunnel_id));
-		src_epkey.tunip[2] = inner_src_ip;
+		src_epkey.vni = tunnel_id;
+		src_epkey.ip = inner_src_ip;
 		src_ep = bpf_map_lookup_elem(&endpoints_map, &src_epkey);
 
 		if (!src_ep) {
@@ -176,8 +174,8 @@ static __inline int trn_process_inner_ip(struct transit_packet *pkt)
 	struct endpoint_t *src_ep;
 	struct endpoint_key_t src_epkey;
 
-	__builtin_memcpy(&src_epkey.tunip[0], &tunnel_id, sizeof(tunnel_id));
-	src_epkey.tunip[2] = pkt->inner_ip->saddr;
+	src_epkey.vni = tunnel_id;
+	src_epkey.ip = pkt->inner_ip->saddr;
 	src_ep = bpf_map_lookup_elem(&endpoints_map, &src_epkey);
 
 	return XDP_TX;
@@ -258,8 +256,8 @@ static __inline int trn_process_inner_arp(struct transit_packet *pkt)
 
 	__be64 tunnel_id = trn_vni_to_tunnel_id(pkt->geneve->vni);
 
-	__builtin_memcpy(&epkey.tunip[0], &tunnel_id, sizeof(tunnel_id));
-	epkey.tunip[2] = *tip;
+	epkey.vni = tunnel_id;
+	epkey.ip = *tip;
 	ep = bpf_map_lookup_elem(&endpoints_map, &epkey);
 
 	bpf_debug("[Transit:%d:0x%x] respond to ARP\n", __LINE__,
@@ -279,9 +277,8 @@ static __inline int trn_process_inner_arp(struct transit_packet *pkt)
 
 	if (ep->eptype == TRAN_SIMPLE_EP) {
 		/*Get the remote_ep address based on the value of the outer dest IP */
-		epkey.tunip[0] = 0;
-		epkey.tunip[1] = 0;
-		epkey.tunip[2] = ep->remote_ips[0];
+		epkey.vni = 0;
+		epkey.ip = ep->remote_ips[0];
 		remote_ep = bpf_map_lookup_elem(&endpoints_map, &epkey);
 
 		if (!remote_ep) {
@@ -304,7 +301,7 @@ static __inline int trn_process_inner_arp(struct transit_packet *pkt)
 	}
 
 	/* We need to lookup the endpoint again, since tip has changed */
-	epkey.tunip[2] = *tip;
+	epkey.ip = *tip;
 	ep = bpf_map_lookup_elem(&endpoints_map, &epkey);
 
 	return XDP_TX;

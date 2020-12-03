@@ -28,7 +28,7 @@ mkdir -p $ROOT/build
 git submodule update --init --recursive
 
 # Create and Start the build contrainer
-docker build -f $ROOT/deploy/build/Dockerfile -t zeta_build \
+docker build -f $ROOT/deploy/build/Dockerfile -t zeta_build:latest \
 	--build-arg USER_NAME=$(id -u -n) \
 	--build-arg USER_ID=$(id -u) \
 	--build-arg GROUP_ID=$(id -g) \

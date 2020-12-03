@@ -34,6 +34,7 @@
 
 #include "trn_datamodel.h"
 
+#ifdef dead_code
 #define PRIu8 "hu"
 #define PRId8 "hd"
 #define PRIx8 "hx"
@@ -46,9 +47,11 @@
 #define PRIu64 "llu" // or possibly "lu"
 #define PRId64 "lld" // or possibly "ld"
 #define PRIx64 "llx" // or possibly "lx"
+#endif
 
 #define TRN_DEFAULT_TTL 64
-#define GEN_DSTPORT 0xc117
+#define GEN_DSTPORT 0xc117 // UDP dport 6081(0x17c1) for Geneve overlay
+#define VXL_DSTPORT 0xb512 // UDP dport 4789(0x12b5) for VxLAN overlay
 #define INIT_JHASH_SEED 0xdeadbeef
 
 #define TRN_GNV_OPT_CLASS 0x0111

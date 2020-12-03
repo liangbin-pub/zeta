@@ -237,37 +237,21 @@ static int check_ep_equal(rpc_trn_endpoint_t *ep, rpc_trn_endpoint_t *c_ep)
 {
 	u_int i;
 
-	if (strcmp(ep->interface, c_ep->interface) != 0) {
-		return false;
-	}
+	assert_string_equal(ep->interface, c_ep->interface);
 
-	if (strcmp(ep->hosted_interface, c_ep->hosted_interface) != 0) {
-		return false;
-	}
+	assert_string_equal(ep->hosted_interface, c_ep->hosted_interface);
 
-	if (strcmp(ep->veth, c_ep->veth) != 0) {
-		return false;
-	}
+	assert_string_equal(ep->veth, c_ep->veth);
 
-	if (memcmp(ep->mac, c_ep->mac, sizeof(char) * 6) != 0) {
-		return false;
-	}
+	assert_memory_equal(ep->mac, c_ep->mac, sizeof(char) * 6);
 
-	if (ep->ip != c_ep->ip) {
-		return false;
-	}
+	assert_int_equal(ep->ip, c_ep->ip);
 
-	if (ep->eptype != c_ep->eptype) {
-		return false;
-	}
+	assert_int_equal(ep->eptype, c_ep->eptype);
 
-	if (ep->tunid != c_ep->tunid) {
-		return false;
-	}
+	assert_int_equal(ep->tunid, c_ep->tunid);
 
-	if (ep->remote_ips.remote_ips_len != c_ep->remote_ips.remote_ips_len) {
-		return false;
-	}
+	assert_int_equal(ep->remote_ips.remote_ips_len, c_ep->remote_ips.remote_ips_len);
 
 	if (ep->remote_ips.remote_ips_len == 0) {
 		return true;
@@ -280,10 +264,7 @@ static int check_ep_equal(rpc_trn_endpoint_t *ep, rpc_trn_endpoint_t *c_ep)
 	      sizeof(uint32_t), cmpfunc);
 
 	for (i = 0; i < ep->remote_ips.remote_ips_len; i++) {
-		if (c_ep->remote_ips.remote_ips_val[i] !=
-		    ep->remote_ips.remote_ips_val[i]) {
-			return false;
-		}
+		assert_int_equal(ep->remote_ips.remote_ips_val[i], c_ep->remote_ips.remote_ips_val[i]);
 	}
 
 	return true;
@@ -673,7 +654,7 @@ static void test_get_ep_1_svc(void **state)
 	will_return(__wrap_bpf_map_lookup_elem, NULL);
 	expect_function_call(__wrap_bpf_map_lookup_elem);
 	retval = get_ep_1_svc(&ep_key1, NULL);
-	assert_false(check_ep_equal(retval, &ep1));
+	assert_true(strlen(retval->interface) == 0);
 
 	/* Test get_ep with invalid interface index*/
 	ep_val.hosted_iface = 2;
@@ -683,7 +664,7 @@ static void test_get_ep_1_svc(void **state)
 	will_return(__wrap_bpf_map_lookup_elem, NULL);
 	expect_function_call(__wrap_bpf_map_lookup_elem);
 	retval = get_ep_1_svc(&ep_key1, NULL);
-	assert_false(check_ep_equal(retval, &ep1));
+	assert_true(strlen(retval->interface) == 0);
 
 	/* Test get_ep with invalid interface*/
 	ep_key1.interface = "";

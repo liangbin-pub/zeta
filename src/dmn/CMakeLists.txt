@@ -11,7 +11,7 @@ file(GLOB SOURCE ${CMAKE_CURRENT_LIST_DIR}/*.c)
 
 add_executable(transitd ${RPCGEN_SVC} ${SOURCE})
 add_dependencies(transitd libbpf rpcgen)
-target_link_libraries(transitd -l:libbpf.a -l:libelf.a -lz -lnsl)
+target_link_libraries(transitd -l:libbpf.a -l:libelf.a -lz -lnsl -pthread)
 set_target_properties(transitd PROPERTIES
                       RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/bin
                       RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/bin

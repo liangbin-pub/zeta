@@ -32,7 +32,7 @@
 const TRAN_MAX_MAGLEV_TABLE_SIZE = 10000;
 
 /* Upper limit on maximum number of enpoint hosts */
-const RPC_TRN_MAX_REMOTE_IPS = 256;
+const RPC_TRN_MAX_REMOTE_IPS = 64;
 
 /* Defines generic codes, 0 is always a success need not to mention! */
 const RPC_TRN_WARN = 1;
@@ -71,7 +71,7 @@ struct rpc_trn_endpoint_t {
        unsigned char mac[6];
        string hosted_interface<20>;
        string veth<20>;
-       uint64_t tunid;
+       uint32_t tunid;
 };
 
 struct rpc_trn_zeta_key_t {
@@ -82,7 +82,7 @@ struct rpc_trn_zeta_key_t {
 /* Defines a unique key to get/delete an RP (in DP) */
 struct rpc_trn_endpoint_key_t {
        string interface<20>;
-       uint64_t tunid;
+       uint32_t tunid;
        uint32_t ip;
 };
 

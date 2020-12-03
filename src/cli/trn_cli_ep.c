@@ -32,7 +32,7 @@ int trn_cli_parse_ep_key(const cJSON *jsonobj,
 
 	if (tunnel_id == NULL) {
 		ep->tunid = 0;
-		print_err("Warning: Tunnel ID default is used: %ld\n",
+		print_err("Warning: Tunnel ID default is used: %d\n",
 			  ep->tunid);
 	} else if (cJSON_IsString(tunnel_id)) {
 		ep->tunid = atoi(tunnel_id->valuestring);
@@ -83,7 +83,7 @@ int trn_cli_parse_ep(const cJSON *jsonobj, struct rpc_trn_endpoint_t *ep)
 
 	if (tunnel_id == NULL) {
 		ep->tunid = 0;
-		print_err("Warning: Tunnel ID default is used: %ld\n",
+		print_err("Warning: Tunnel ID default is used: %d\n",
 			  ep->tunid);
 	} else if (cJSON_IsString(tunnel_id)) {
 		ep->tunid = atoi(tunnel_id->valuestring);
@@ -306,7 +306,7 @@ void dump_ep(struct rpc_trn_endpoint_t *ep)
 	int i;
 
 	print_msg("Interface: %s\n", ep->interface);
-	print_msg("Tunnel ID: %ld\n", ep->tunid);
+	print_msg("Tunnel ID: %d\n", ep->tunid);
 	print_msg("IP: 0x%x\n", ep->ip);
 	print_msg("Hosted Interface: %s\n", ep->hosted_interface);
 	print_msg("veth: %s\n", ep->veth);

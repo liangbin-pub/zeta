@@ -33,9 +33,13 @@
 #define TRAN_FTN_TYPE_TAIL = 2
 
 #define TRAN_MAX_MAGLEV_TABLE_SIZE 10000
+#define TRAN_MAX_FTN 512
+#define TRAN_MAX_CHAIN 128
 
-#define TRAN_MAX_NEP 65537
-#define TRAN_MAX_REMOTES 256
+/* Set max total number of endpoints */
+#define TRAN_MAX_NEP 128*1024
+/* Set max number of host IPs a (scaled) endpoint can be mapped to */
+#define TRAN_MAX_REMOTES 64
 #define TRAN_MAX_ITF 256
 #define TRAN_UNUSED_ITF_IDX -1
 
@@ -62,8 +66,21 @@ enum trn_xdp_stage_t {
 	XDP_SCALED_EP_PROC
 };
 
+/* XDP programs roles pass along tail-called bpf programs */
+enum trn_xdp_role_t {
+	XDP_FWD = 0,
+	XDP_FTN
+};
+
+/* Tunnel Interface encapsulation types */
+enum trn_xdp_tunnel_encap_t {
+	XDP_TUNNEL_VXLAN = 0,
+	XDP_TUNNEL_GENEVE
+};
+
 struct endpoint_key_t {
-	__u32 tunip[3];
+	__u32 vni;
+	__u32 ip;
 } __attribute__((packed));
 
 struct dft_t {

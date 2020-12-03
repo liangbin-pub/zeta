@@ -30,10 +30,6 @@
 
 #include "trn_datamodel.h"
 
-#define MAX_EP 65537
-#define MAX_FTN 512
-#define MAX_CHAIN 128
-
 struct bpf_map_def SEC("maps") jmp_table = {
 	.type = BPF_MAP_TYPE_PROG_ARRAY,
 	.key_size = sizeof(__u32),
@@ -55,7 +51,7 @@ struct bpf_map_def SEC("maps") chains_map = {
 	.type = BPF_MAP_TYPE_HASH,
 	.key_size = sizeof(__u32),
 	.value_size = sizeof(struct chain_t),
-	.max_entries = MAX_CHAIN,
+	.max_entries = TRAN_MAX_CHAIN,
 	.map_flags = 0,
 };
 BPF_ANNOTATE_KV_PAIR(chains_map, __u32, struct chain_t);
@@ -64,7 +60,7 @@ struct bpf_map_def SEC("maps") ftns_map = {
 	.type = BPF_MAP_TYPE_HASH,
 	.key_size = sizeof(__u32),
 	.value_size = sizeof(struct ftn_t),
-	.max_entries = MAX_FTN,
+	.max_entries = TRAN_MAX_FTN,
 	.map_flags = 0,
 };
 BPF_ANNOTATE_KV_PAIR(ftns_map, __u32, struct ftn_t);
@@ -73,7 +69,7 @@ struct bpf_map_def SEC("maps") endpoints_map = {
 	.type = BPF_MAP_TYPE_HASH,
 	.key_size = sizeof(struct endpoint_key_t),
 	.value_size = sizeof(struct endpoint_t),
-	.max_entries = MAX_EP,
+	.max_entries = TRAN_MAX_NEP,
 	.map_flags = 0,
 };
 BPF_ANNOTATE_KV_PAIR(endpoints_map, struct endpoint_key_t, struct endpoint_t);
@@ -82,7 +78,7 @@ struct bpf_map_def SEC("maps") hosted_endpoints_iface_map = {
 	.type = BPF_MAP_TYPE_HASH,
 	.key_size = sizeof(struct endpoint_key_t),
 	.value_size = sizeof(int),
-	.max_entries = MAX_EP,
+	.max_entries = TRAN_MAX_NEP,
 	.map_flags = 0,
 };
 BPF_ANNOTATE_KV_PAIR(hosted_endpoints_iface_map, struct endpoint_key_t, int);

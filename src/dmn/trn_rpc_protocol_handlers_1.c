@@ -239,8 +239,8 @@ int *update_ep_1_svc(rpc_trn_endpoint_t *ep, struct svc_req *rqstp)
 		goto error;
 	}
 
-	memcpy(epkey.tunip, &ep->tunid, sizeof(ep->tunid));
-	epkey.tunip[2] = ep->ip;
+	epkey.vni = ep->tunid;
+	epkey.ip = ep->ip;
 	epval.eptype = ep->eptype;
 
 	epval.nremote_ips = ep->remote_ips.remote_ips_len;
@@ -280,7 +280,7 @@ int *update_ep_1_svc(rpc_trn_endpoint_t *ep, struct svc_req *rqstp)
 	if (rc != 0) {
 		TRN_LOG_ERROR(
 			"Cannot update transit XDP with ep %d on interface %s",
-			epkey.tunip[2], itf);
+			epkey.ip, itf);
 		result = RPC_TRN_ERROR;
 		goto error;
 	}
@@ -420,14 +420,14 @@ int *delete_ep_1_svc(rpc_trn_endpoint_key_t *argp, struct svc_req *rqstp)
 		goto error;
 	}
 
-	memcpy(epkey.tunip, &argp->tunid, sizeof(argp->tunid));
-	epkey.tunip[2] = argp->ip;
+	epkey.vni = argp->tunid;
+	epkey.ip = argp->ip;
 
 	rc = trn_delete_endpoint(md, &epkey);
 
 	if (rc != 0) {
 		TRN_LOG_ERROR("Failure deleting ep %d on interface %s",
-			      epkey.tunip[2], argp->interface);
+			      epkey.ip, argp->interface);
 		result = RPC_TRN_ERROR;
 		goto error;
 	}
@@ -563,13 +563,13 @@ rpc_trn_endpoint_t *get_ep_1_svc(rpc_trn_endpoint_key_t *argp,
 {
 	UNUSED(rqstp);
 	static rpc_trn_endpoint_t result;
+	static struct endpoint_t epval;
 	result.remote_ips.remote_ips_len = 0;
 	result.hosted_interface = "";
 	memset(result.mac, 0, sizeof(result.mac));
 	int rc;
 	struct endpoint_key_t epkey;
-	static struct endpoint_t epval;
-
+	
 	TRN_LOG_DEBUG("get_ep_1 ep tunid: %ld, ip: 0x%x,"
 		      " on interface: %s",
 		      argp->tunid, argp->ip, argp->interface);
@@ -582,15 +582,15 @@ rpc_trn_endpoint_t *get_ep_1_svc(rpc_trn_endpoint_key_t *argp,
 		goto error;
 	}
 
-	memcpy(epkey.tunip, &argp->tunid, sizeof(argp->tunid));
-	epkey.tunip[2] = argp->ip;
+	epkey.vni = argp->tunid;
+	epkey.ip = argp->ip;
 
 	rc = trn_get_endpoint(md, &epkey, &epval);
 
 	if (rc != 0) {
 		TRN_LOG_ERROR(
-			"Cannot update transit XDP with ep %d on interface %s",
-			epkey.tunip[2], argp->interface);
+			"Cannot find ep %d on interface %s from XDP map",
+			epkey.ip, argp->interface);
 		goto error;
 	}
 
