@@ -41,7 +41,17 @@ set(DMN_MOCKS "-Wl,--wrap=bpf_map_update_elem \
     -Wl,--wrap=bpf_object__close \
     -Wl,--wrap=if_nametoindex \
     -Wl,--wrap=if_indextoname \
-    -Wl,--wrap=setrlimit")
+    -Wl,--wrap=trn_transit_map_get_fd \
+    -Wl,--wrap=setrlimit \
+    -Wl,--wrap=close \
+    -Wl,--wrap=bpf_program__set_ifindex \
+    -Wl,--wrap=bpf_program__set_type \
+    -Wl,--wrap=bpf_object__name \
+    -Wl,--wrap=bpf_map__name \
+    -Wl,--wrap=bpf_map__set_ifindex \
+    -Wl,--wrap=bpf_obj_get \
+    -Wl,--wrap=bpf_map__reuse_fd \
+    -Wl,--wrap=bpf_object__open_xattr")
 
 add_executable(test_dmn ${RPCGEN_SVC} ${TEST_SOURCE})
 add_dependencies(test_dmn libbpf rpcgen)

@@ -86,7 +86,7 @@ static __inline void trn_update_ep_host_cache(struct transit_packet *pkt,
 	struct endpoint_t *src_ep;
 	struct endpoint_key_t src_epkey;
 
-	if (pkt->rts_opt->type == TRN_GNV_RTS_OPT_TYPE) {
+	if (pkt->overlay.geneve.rts_opt->type == TRN_GNV_RTS_OPT_TYPE) {
 		src_epkey.vni = tunnel_id;
 		src_epkey.ip = inner_src_ip;
 		src_ep = bpf_map_lookup_elem(&endpoints_map, &src_epkey);
@@ -94,7 +94,7 @@ static __inline void trn_update_ep_host_cache(struct transit_packet *pkt,
 		if (!src_ep) {
 			/* Add the RTS info to the ep_host_cache */
 			bpf_map_update_elem(&ep_host_cache, &src_epkey,
-					    &pkt->rts_opt->rts_data.host, 0);
+					    &pkt->overlay.geneve.rts_opt->rts_data.host, 0);
 		}
 	}
 }
@@ -102,7 +102,7 @@ static __inline void trn_update_ep_host_cache(struct transit_packet *pkt,
 static __inline int trn_decapsulate_and_redirect(struct transit_packet *pkt,
 						 int ifindex)
 {
-	int outer_header_size = sizeof(*pkt->geneve) + pkt->gnv_opt_len +
+	int outer_header_size = sizeof(*pkt->overlay.geneve.hdr) + pkt->overlay.geneve.gnv_hdr_len +
 				sizeof(*pkt->udp) + sizeof(*pkt->ip) +
 				sizeof(*pkt->eth);
 
@@ -125,7 +125,7 @@ static __inline int trn_process_inner_ip(struct transit_packet *pkt)
 	__u32 ipproto;
 
 	if (pkt->inner_ip + 1 > pkt->data_end) {
-		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n", __LINE__,
+		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad inner IP frame\n", __LINE__,
 			  bpf_ntohl(pkt->itf_ipv4));
 		return XDP_ABORTED;
 	}
@@ -144,7 +144,7 @@ static __inline int trn_process_inner_ip(struct transit_packet *pkt)
 		pkt->inner_tcp = (void *)pkt->inner_ip + sizeof(*pkt->inner_ip);
 
 		if (pkt->inner_tcp + 1 > pkt->data_end) {
-			bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n",
+			bpf_debug("[Transit:%d:0x%x] ABORTED: Bad inner TCP frame\n",
 				  __LINE__, bpf_ntohl(pkt->itf_ipv4));
 			return XDP_ABORTED;
 		}
@@ -157,24 +157,20 @@ static __inline int trn_process_inner_ip(struct transit_packet *pkt)
 		pkt->inner_udp = (void *)pkt->inner_ip + sizeof(*pkt->inner_ip);
 
 		if (pkt->inner_udp + 1 > pkt->data_end) {
-			bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n",
+			bpf_debug("[Transit:%d:0x%x] ABORTED: Bad inner UDP frame\n",
 				  __LINE__, bpf_ntohl(pkt->itf_ipv4));
 			return XDP_ABORTED;
 		}
-
-		bpf_debug("[Scaled_EP:%d:0x%x] Process UDP \n", __LINE__,
-			  bpf_ntohl(pkt->itf_ipv4));
 
 		pkt->inner_ipv4_tuple.sport = pkt->inner_udp->source;
 		pkt->inner_ipv4_tuple.dport = pkt->inner_udp->dest;
 	}
 
 	/* Lookup the source endpoint*/
-	__be64 tunnel_id = trn_vni_to_tunnel_id(pkt->geneve->vni);
 	struct endpoint_t *src_ep;
 	struct endpoint_key_t src_epkey;
 
-	src_epkey.vni = tunnel_id;
+	src_epkey.vni = pkt->vni;
 	src_epkey.ip = pkt->inner_ip->saddr;
 	src_ep = bpf_map_lookup_elem(&endpoints_map, &src_epkey);
 
@@ -194,38 +190,31 @@ static __inline int trn_process_inner_arp(struct transit_packet *pkt)
 	pkt->inner_arp = (void *)pkt->inner_eth + sizeof(*pkt->inner_eth);
 
 	if (pkt->inner_arp + 1 > pkt->data_end) {
-		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n", __LINE__,
+		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad inner ARP frame\n", __LINE__,
 			  bpf_ntohl(pkt->itf_ipv4));
 		return XDP_ABORTED;
 	}
 
 	if (pkt->inner_arp->ar_pro != bpf_htons(ETH_P_IP) ||
 	    pkt->inner_arp->ar_hrd != bpf_htons(ARPHRD_ETHER)) {
-		bpf_debug("[Transit:%d:0x%x] DROP: ARP unsupported protocol"
+		bpf_debug("[Transit:%d:0x%x] DROP: inner ARP unsupported protocol"
 			  " or Hardware type for inner packet!\n",
 			  __LINE__, bpf_ntohl(pkt->itf_ipv4));
 		return XDP_DROP;
 	}
 
-	if (pkt->inner_arp->ar_op != bpf_htons(ARPOP_REPLY) &&
-	    pkt->inner_arp->ar_op != bpf_htons(ARPOP_REQUEST)) {
+	if (pkt->inner_arp->ar_op != bpf_htons(ARPOP_REQUEST)) {
 		bpf_debug(
 			"[Transit:%d:0x%x] DROP:"
-			"Only ARP REPLY and REQUEST are supported, received [0x%x]\n",
+			"Only inner ARP REQUEST are supported, received [0x%x]\n",
 			pkt->inner_arp->ar_op);
 		return XDP_DROP;
-	}
-
-	if ((unsigned char *)(pkt->inner_arp + 1) > pkt->data_end) {
-		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n", __LINE__,
-			  bpf_ntohl(pkt->itf_ipv4));
-		return XDP_ABORTED;
 	}
 
 	sha = (unsigned char *)(pkt->inner_arp + 1);
 
 	if (sha + ETH_ALEN > pkt->data_end) {
-		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n", __LINE__,
+		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad inner ARP frame\n", __LINE__,
 			  bpf_ntohl(pkt->itf_ipv4));
 		return XDP_ABORTED;
 	}
@@ -233,7 +222,7 @@ static __inline int trn_process_inner_arp(struct transit_packet *pkt)
 	sip = (__u32 *)(sha + ETH_ALEN);
 
 	if (sip + 1 > pkt->data_end) {
-		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n", __LINE__,
+		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad inner ARP frame\n", __LINE__,
 			  bpf_ntohl(pkt->itf_ipv4));
 		return XDP_ABORTED;
 	}
@@ -241,7 +230,7 @@ static __inline int trn_process_inner_arp(struct transit_packet *pkt)
 	tha = (unsigned char *)sip + sizeof(__u32);
 
 	if (tha + ETH_ALEN > pkt->data_end) {
-		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n", __LINE__,
+		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad inner ARP frame\n", __LINE__,
 			  bpf_ntohl(pkt->itf_ipv4));
 		return XDP_ABORTED;
 	}
@@ -249,32 +238,41 @@ static __inline int trn_process_inner_arp(struct transit_packet *pkt)
 	tip = (__u32 *)(tha + ETH_ALEN);
 
 	if ((void *)tip + sizeof(__u32) > pkt->data_end) {
-		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n", __LINE__,
+		bpf_debug("[Transit:%d:0x%08x] ABORTED: Bad inner ARP frame\n", __LINE__,
 			  bpf_ntohl(pkt->itf_ipv4));
 		return XDP_ABORTED;
 	}
 
-	__be64 tunnel_id = trn_vni_to_tunnel_id(pkt->geneve->vni);
-
-	epkey.vni = tunnel_id;
+	/* Look up target endpoint */
+	epkey.vni = pkt->vni;
 	epkey.ip = *tip;
 	ep = bpf_map_lookup_elem(&endpoints_map, &epkey);
+	if (!ep) {
+		bpf_debug("[Transit:%d:0x%08x] DROP: Failed to find endpoint\n",
+			__LINE__, bpf_ntohl(pkt->itf_ipv4));
+		bpf_debug("[Transit:] Endpoint vni: %d ip: 0x%08x\n",
+			epkey.vni, bpf_ntohl(epkey.ip));
+		return XDP_DROP;
+	}
 
-	bpf_debug("[Transit:%d:0x%x] respond to ARP\n", __LINE__,
-		  bpf_ntohl(pkt->itf_ipv4));
+	bpf_debug("[Transit:%d:0x%08x] Respond to ARP request\n",
+		__LINE__, bpf_ntohl(pkt->itf_ipv4));
+	bpf_debug("[Transit:] Requester vni: %d ip: 0x%08x\n",
+		epkey.vni, bpf_ntohl(epkey.ip));
 
-	/* Respond to ARP */
+	/* Modify pkt for inner ARP response */
 	pkt->inner_arp->ar_op = bpf_htons(ARPOP_REPLY);
-	trn_set_arp_ha(tha, sha);
-	trn_set_arp_ha(sha, ep->mac);
+	trn_set_mac(tha, sha);
+	trn_set_mac(sha, ep->mac);
 
 	__u32 tmp_ip = *sip;
 	*sip = *tip;
 	*tip = tmp_ip;
 
-	/* Set the sender mac address to the ep mac address */
+	/* Set the inner ARP response sender mac address to the ep mac address */
 	trn_set_src_mac(pkt->inner_eth, ep->mac);
-
+#if 0
+<======= here continue, why not change inner dst mac
 	if (ep->eptype == TRAN_SIMPLE_EP) {
 		/*Get the remote_ep address based on the value of the outer dest IP */
 		epkey.vni = 0;
@@ -285,21 +283,21 @@ static __inline int trn_process_inner_arp(struct transit_packet *pkt)
 			bpf_debug(
 				"[Transit:%d:] (BUG) DROP: "
 				"Failed to find remote MAC address of ep: 0x%x @ 0x%x\n",
-				__LINE__, bpf_ntohl(*tip),
+				__LINE__, bpf_ntohl(*sip),
 				bpf_ntohl(ep->remote_ips[0]));
 			return XDP_DROP;
 		}
 
-		/* For a simple endpoint, Write the RTS option on behalf of the target endpoint */
-		pkt->rts_opt->rts_data.host.ip = ep->remote_ips[0];
-		__builtin_memcpy(pkt->rts_opt->rts_data.host.mac,
+		/* setup OAM packet with  */
+		pkt->overlay.geneve.rts_opt->rts_data.host.ip = ep->remote_ips[0];
+		__builtin_memcpy(pkt->overlay.geneve.rts_opt->rts_data.host.mac,
 				 remote_ep->mac, 6 * sizeof(unsigned char));
 	} else {
 		bpf_debug("[Transit:%d:0x%x] skip RTS writing!\n", __LINE__,
 			  bpf_ntohl(pkt->itf_ipv4));
 		trn_reset_rts_opt(pkt);
 	}
-
+#endif
 	/* We need to lookup the endpoint again, since tip has changed */
 	epkey.ip = *tip;
 	ep = bpf_map_lookup_elem(&endpoints_map, &epkey);
@@ -309,63 +307,60 @@ static __inline int trn_process_inner_arp(struct transit_packet *pkt)
 
 static __inline int trn_process_inner_eth(struct transit_packet *pkt)
 {
-	pkt->inner_eth = (void *)pkt->geneve + pkt->gnv_hdr_len;
-	pkt->inner_eth_off = sizeof(*pkt->inner_eth);
-
 	if (pkt->inner_eth + 1 > pkt->data_end) {
-		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n", __LINE__,
+		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad inner Ethernet frame\n", __LINE__,
 			  bpf_ntohl(pkt->itf_ipv4));
 		return XDP_ABORTED;
 	}
 
 	/* ARP */
 	if (pkt->inner_eth->h_proto == bpf_htons(ETH_P_ARP)) {
-		bpf_debug("[Transit:%d:0x%x] Processing ARP \n", __LINE__,
+		bpf_debug("[Transit:%d:0x%x] Processing inner ARP\n", __LINE__,
 			  bpf_ntohl(pkt->itf_ipv4));
 		return trn_process_inner_arp(pkt);
 	}
 
 	if (pkt->eth->h_proto != bpf_htons(ETH_P_IP)) {
 		bpf_debug(
-			"[Transit:%d:0x%x] DROP: unsupported inner packet: [0x%x]\n",
+			"[Transit:%d:0x%x] DROP: non-IP inner packet: [0x%x]\n",
 			__LINE__, bpf_ntohl(pkt->itf_ipv4),
 			bpf_ntohs(pkt->eth->h_proto));
 		return XDP_DROP;
 	}
 
-	bpf_debug("[Transit:%d:0x%x] Processing IP \n", __LINE__,
+	bpf_debug("[Transit:%d:0x%x] Processing inner IP \n", __LINE__,
 		  bpf_ntohl(pkt->itf_ipv4));
 	return trn_process_inner_ip(pkt);
 }
 
 static __inline int trn_process_geneve(struct transit_packet *pkt)
 {
-	pkt->geneve = (void *)pkt->udp + sizeof(*pkt->udp);
-	if (pkt->geneve + 1 > pkt->data_end) {
+	pkt->overlay.geneve.hdr = (void *)pkt->udp + sizeof(*pkt->udp);
+	if (pkt->overlay.geneve.hdr + 1 > pkt->data_end) {
 		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n", __LINE__,
 			  bpf_ntohl(pkt->itf_ipv4));
 		return XDP_ABORTED;
 	}
 
-	if (pkt->geneve->proto_type != bpf_htons(ETH_P_TEB)) {
+	if (pkt->overlay.geneve.hdr->proto_type != bpf_htons(ETH_P_TEB)) {
 		bpf_debug(
 			"[Transit:%d:0x%x] PASS: unrecognized geneve proto_type: [0x%x]\n",
 			__LINE__, bpf_ntohl(pkt->itf_ipv4),
-			pkt->geneve->proto_type);
+			pkt->overlay.geneve.hdr->proto_type);
 		return XDP_PASS;
 	}
 
-	pkt->gnv_opt_len = pkt->geneve->opt_len * 4;
-	pkt->gnv_hdr_len = sizeof(*pkt->geneve) + pkt->gnv_opt_len;
-	pkt->rts_opt = (void *)&pkt->geneve->options[0];
+	pkt->overlay.geneve.gnv_opt_len = pkt->overlay.geneve.hdr->opt_len * 4;
+	pkt->overlay.geneve.gnv_hdr_len = sizeof(*pkt->overlay.geneve.hdr) + pkt->overlay.geneve.gnv_opt_len;
+	pkt->overlay.geneve.rts_opt = (void *)&pkt->overlay.geneve.hdr->options[0];
 
-	if (pkt->rts_opt + 1 > pkt->data_end) {
+	if (pkt->overlay.geneve.rts_opt + 1 > pkt->data_end) {
 		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n", __LINE__,
 			  bpf_ntohl(pkt->itf_ipv4));
 		return XDP_ABORTED;
 	}
 
-	if (pkt->rts_opt->opt_class != TRN_GNV_OPT_CLASS) {
+	if (pkt->overlay.geneve.rts_opt->opt_class != TRN_GNV_OPT_CLASS) {
 		bpf_debug(
 			"[Scaled_EP:%d:0x%x] ABORTED: Unsupported Geneve option class\n",
 			__LINE__, bpf_ntohl(pkt->itf_ipv4));
@@ -373,20 +368,42 @@ static __inline int trn_process_geneve(struct transit_packet *pkt)
 	}
 
 	// TODO: process options
-	pkt->scaled_ep_opt = (void *)pkt->rts_opt + sizeof(*pkt->rts_opt);
+	pkt->overlay.geneve.scaled_ep_opt = (void *)pkt->overlay.geneve.rts_opt + sizeof(*pkt->overlay.geneve.rts_opt);
 
-	if (pkt->scaled_ep_opt + 1 > pkt->data_end) {
+	if (pkt->overlay.geneve.scaled_ep_opt + 1 > pkt->data_end) {
 		bpf_debug("[Scaled_EP:%d:0x%x] ABORTED: Bad offset\n", __LINE__,
 			  bpf_ntohl(pkt->itf_ipv4));
 		return XDP_ABORTED;
 	}
 
-	if (pkt->scaled_ep_opt->opt_class != TRN_GNV_OPT_CLASS) {
+	if (pkt->overlay.geneve.scaled_ep_opt->opt_class != TRN_GNV_OPT_CLASS) {
 		bpf_debug(
 			"[Scaled_EP:%d:0x%x] ABORTED: Unsupported Geneve option class\n",
 			__LINE__, bpf_ntohl(pkt->itf_ipv4));
 		return XDP_ABORTED;
 	}
+
+	pkt->vni = trn_get_vni(pkt->overlay.geneve.hdr->vni);
+
+	pkt->inner_eth = (void *)pkt->overlay.geneve.hdr + pkt->overlay.geneve.gnv_hdr_len;
+	pkt->inner_eth_off = sizeof(*pkt->inner_eth);
+
+	return trn_process_inner_eth(pkt);
+}
+
+static __inline int trn_process_vxlan(struct transit_packet *pkt)
+{
+	pkt->overlay.vxlan = (void *)pkt->udp + sizeof(*pkt->udp);
+	if (pkt->overlay.vxlan + 1 > pkt->data_end) {
+		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad VxLan frame\n", __LINE__,
+			  bpf_ntohl(pkt->itf_ipv4));
+		return XDP_ABORTED;
+	}
+
+	pkt->vni = trn_get_vni(pkt->overlay.vxlan->vni);
+
+	pkt->inner_eth = (void *)(pkt->overlay.vxlan + 1);
+	pkt->inner_eth_off = sizeof(*pkt->inner_eth);
 
 	return trn_process_inner_eth(pkt);
 }
@@ -397,18 +414,20 @@ static __inline int trn_process_udp(struct transit_packet *pkt)
 	pkt->udp = (void *)pkt->ip + sizeof(*pkt->ip);
 
 	if (pkt->udp + 1 > pkt->data_end) {
-		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n", __LINE__,
+		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad UDP frame\n", __LINE__,
 			  bpf_ntohl(pkt->itf_ipv4));
 		return XDP_ABORTED;
 	}
 
-	if (pkt->udp->dest != GEN_DSTPORT) {
-		bpf_debug("[Transit:%d:0x%x] PASS non-geneve packet \n",
-			  __LINE__, bpf_ntohl(pkt->itf_ipv4));
-		return XDP_PASS;
+	if (pkt->udp->dest == GEN_DSTPORT && pkt->itf->role == XDP_FTN) {
+		return trn_process_geneve(pkt);
+	} else if (pkt->udp->dest == VXL_DSTPORT && pkt->itf->role == XDP_FWD) {
+		return trn_process_vxlan(pkt);
 	}
 
-	return trn_process_geneve(pkt);
+	bpf_debug("[Transit:%d:0x%x] PASS non-overlay packet \n",
+			__LINE__, bpf_ntohl(pkt->itf_ipv4));
+	return XDP_PASS;
 }
 
 static __inline int trn_process_ip(struct transit_packet *pkt)
@@ -417,43 +436,58 @@ static __inline int trn_process_ip(struct transit_packet *pkt)
 	pkt->ip = (void *)pkt->eth + pkt->eth_off;
 
 	if (pkt->ip + 1 > pkt->data_end) {
-		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n", __LINE__,
-			  bpf_ntohl(pkt->itf_ipv4));
+		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad IP frame\n", __LINE__,
+			  bpf_ntohl(pkt->ip->daddr));
 		return XDP_ABORTED;
 	}
 
+	if (pkt->ip->daddr != pkt->itf->entrances[pkt->ent_idx].ip) {
+		bpf_debug("[Transit:%d:%d] ABORTED: IP frame not for us\n", __LINE__,
+			  pkt->itf_idx);
+		return XDP_ABORTED;
+	}
+
+	if (!pkt->ip->ttl) {
+		return XDP_DROP;
+	}
+
+	/* Allow host stack processing */
 	if (pkt->ip->protocol != IPPROTO_UDP) {
 		return XDP_PASS;
 	}
 
-	if (!pkt->ip->ttl)
-		return XDP_DROP;
-
-	/* Only process packets designated to this interface!
-	 * In functional tests - relying on docker0 - we see such packets!
-	 */
-	if (pkt->ip->daddr != pkt->itf_ipv4) {
-		bpf_debug(
-			"[Transit:%d:0x%x] DROP: packet dst address [0x%x] mismatch interface address.\n",
-			__LINE__, bpf_ntohl(pkt->itf_ipv4),
-			bpf_ntohl(pkt->ip->daddr));
-		return XDP_DROP;
-	}
+	pkt->itf_ipv4 = pkt->ip->daddr;
 
 	return trn_process_udp(pkt);
 }
 
 static __inline int trn_process_eth(struct transit_packet *pkt)
 {
+	int i;
 	pkt->eth = pkt->data;
 	pkt->eth_off = sizeof(*pkt->eth);
 
 	if (pkt->data + pkt->eth_off > pkt->data_end) {
-		bpf_debug("[Transit:%d:0x%x] ABORTED: Bad offset\n", __LINE__,
-			  bpf_ntohl(pkt->itf_ipv4));
+		bpf_debug("[Transit:%d:%d] ABORTED: Bad Ethernet frame\n", __LINE__,
+			  pkt->itf_idx);
 		return XDP_ABORTED;
 	}
 
+	for (i = 0; i < pkt->itf->num_entrances; i++) {
+		if (trn_is_mac_equal(pkt->eth->h_dest, pkt->itf->entrances[i].mac)) {
+			pkt->ent_idx = i;/* Packet is destinated to us */
+			trn_set_mac(pkt->itf_mac, pkt->eth->h_dest);
+			break;
+		} 
+	}
+
+	if (i == pkt->itf->num_entrances) {
+		bpf_debug("[Transit:%d:%d] ABORTED: Ethernet frame not for us\n", __LINE__,
+			  pkt->itf_idx);
+		return XDP_ABORTED;
+	}
+
+	/* Allow host stack processing */
 	if (pkt->eth->h_proto != bpf_htons(ETH_P_IP)) {
 		return XDP_PASS;
 	}
@@ -468,20 +502,14 @@ int _transit(struct xdp_md *ctx)
 	pkt.data = (void *)(long)ctx->data;
 	pkt.data_end = (void *)(long)ctx->data_end;
 	pkt.xdp = ctx;
-
-	struct tunnel_iface_t *itf;
-
-	int k = 0;
-	itf = bpf_map_lookup_elem(&interface_config_map, &k);
-
-	if (!itf) {
-		bpf_debug("[Transit:%d:] ABORTED: Bad configuration\n",
-			  __LINE__);
+	pkt.itf_idx = ctx->ingress_ifindex;
+	
+	pkt.itf = bpf_map_lookup_elem(&interface_config_map, &pkt.itf_idx);
+	if (!pkt.itf) {
+		bpf_debug("[Transit:%d] ABORTED: Failed to lookup ingress config for %d\n",
+			  __LINE__, pkt.itf_idx);
 		return XDP_ABORTED;
 	}
-
-	pkt.itf_ipv4 = itf->ip;
-	pkt.itf_idx = itf->iface_index;
 
 	int action = trn_process_eth(&pkt);
 
@@ -491,19 +519,19 @@ int _transit(struct xdp_md *ctx)
 		action = bpf_redirect_map(&interfaces_map, pkt.itf_idx, 0);
 
 	if (action == XDP_PASS) {
-		__u32 key = XDP_PASS_PROC;
+		__u32 key = TRAN_PASS_PROG;
 		bpf_tail_call(pkt.xdp, &jmp_table, key);
 		return xdpcap_exit(ctx, &xdpcap_hook, XDP_PASS);
 	}
 
 	if (action == XDP_DROP) {
-		__u32 key = XDP_DROP_PROC;
+		__u32 key = TRAN_DROP_PROG;
 		bpf_tail_call(pkt.xdp, &jmp_table, key);
 		return xdpcap_exit(ctx, &xdpcap_hook, XDP_DROP);
 	}
 
 	if (action == XDP_TX) {
-		__u32 key = XDP_TX_PROC;
+		__u32 key = TRAN_TX_PROG;
 		bpf_tail_call(pkt.xdp, &jmp_table, key);
 		return xdpcap_exit(ctx, &xdpcap_hook, XDP_TX);
 	}
@@ -512,7 +540,7 @@ int _transit(struct xdp_md *ctx)
 		return xdpcap_exit(ctx, &xdpcap_hook, XDP_ABORTED);
 
 	if (action == XDP_REDIRECT) {
-		__u32 key = XDP_REDIRECT_PROC;
+		__u32 key = TRAN_REDIRECT_PROG;
 		bpf_tail_call(pkt.xdp, &jmp_table, key);
 		return xdpcap_exit(ctx, &xdpcap_hook, XDP_REDIRECT);
 	}

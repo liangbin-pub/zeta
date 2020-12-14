@@ -26,7 +26,7 @@
 #include <search.h>
 
 #include "trn_transit_xdp_usr.h"
-
+#if 0
 #define INTF_INSERT()                                                                               \
 	do {                                                                                        \
 		ENTRY e, *ep;                                                                       \
@@ -48,9 +48,11 @@
 			e.key = malloc(sizeof(char) * strlen(itf) + 1);                             \
 			strcpy(e.key, itf);                                                         \
 			ep = hsearch(e, ENTER);                                                     \
+			if (!ep) {                                                                  \
+				free(e.key);                                                            \
+				return -1;                                                              \
+			}                                                                           \
 		}                                                                                   \
-		if (!ep)                                                                            \
-			return -1;                                                                  \
 		return 0;                                                                           \
 	} while (0)
 
@@ -89,3 +91,4 @@ void trn_itf_table_free();
 int trn_itf_table_insert(char *itf, struct user_metadata_t *md);
 struct user_metadata_t *trn_itf_table_find(char *itf);
 void trn_itf_table_delete(char *itf);
+#endif

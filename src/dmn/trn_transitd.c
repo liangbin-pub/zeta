@@ -53,7 +53,6 @@ void sighandler(int signo)
 		TRN_LOG_INFO("Exit!.");
 	};
 
-	trn_itf_table_free();
 	TRN_LOG_CLOSE();
 	exit(1);
 }
@@ -62,11 +61,6 @@ void sighandler(int signo)
 void *entrance_rpc(void *arg)
 {
 	UNUSED(arg);
-
-	/* Initialize the interfaces table */
-	if (!trn_itf_table_init()) {
-		TRN_LOG_ERROR("cannot initialize interfaces table.");
-	}
 
 	/* (re)Mount the bpf fs*/
 	umount("/sys/fs/bpf");
@@ -113,7 +107,6 @@ void *entrance_rpc(void *arg)
 	svc_run();
 	TRN_LOG_ERROR("svc_run returned");
 
-	trn_itf_table_free();
 	pthread_exit(NULL);
 }
 

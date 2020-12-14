@@ -120,9 +120,14 @@ struct genevehdr {
 	struct geneve_opt options[];
 };
 
-struct vlan_hdr {
-	__be16 h_vlan_TCI;
-	__be16 h_vlan_encapsulated_proto;
+struct vxlanhdr {
+	/* Big endian! */
+	__u8 rsvd1 : 3;
+	__u8 i_flag : 1;
+	__u8 rsvd2 : 4;
+	__u8 rsvd3[3];
+	__u8 vni[3];
+	__u8 rsvd4;
 };
 
 struct transit_packet {
@@ -130,8 +135,11 @@ struct transit_packet {
 	void *data_end;
 
 	/* interface index */
+	struct tunnel_iface_t *itf;
 	int itf_idx;
 	__u32 itf_ipv4;
+	__u16 ent_idx;       // entrance index in tunnel_iface_t
+	__u8 itf_mac[6];
 
 	/* xdp*/
 	struct xdp_md *xdp;
@@ -146,12 +154,20 @@ struct transit_packet {
 	/* UDP */
 	struct udphdr *udp;
 
-	/* Geneve */
-	struct genevehdr *geneve;
-	struct trn_gnv_rts_opt *rts_opt;
-	struct trn_gnv_scaled_ep_opt *scaled_ep_opt;
-	int gnv_hdr_len;
-	int gnv_opt_len;
+	union {
+		struct {
+			/* Geneve */
+			struct genevehdr *hdr;
+			struct trn_gnv_rts_opt *rts_opt;
+			struct trn_gnv_scaled_ep_opt *scaled_ep_opt;
+			int gnv_hdr_len;
+			int gnv_opt_len;
+		} geneve;
+		struct vxlanhdr *vxlan;
+	} overlay;
+	
+	/* overlay network ID */
+	__u32 vni;
 
 	/* Inner ethernet */
 	struct ethhdr *inner_eth;
@@ -190,18 +206,18 @@ static inline __u32 trn_get_inner_packet_hash(struct transit_packet *pkt)
 }
 
 __ALWAYS_INLINE__
-static __be64 trn_vni_to_tunnel_id(const __u8 *vni)
+static __be32 trn_get_vni(const __u8 *vni)
 {
 	/* Big endian! */
 	return (vni[0] << 16) | (vni[1] << 8) | vni[2];
 }
 
-static void trn_tunnel_id_to_vni(__be64 tun_id, __u8 *vni)
+static void trn_set_vni(__be32 src, __u8 *vni)
 {
 	/* Big endian! */
-	vni[0] = (__u8)(tun_id >> 16);
-	vni[1] = (__u8)(tun_id >> 8);
-	vni[2] = (__u8)tun_id;
+	vni[0] = (__u8)(src >> 16);
+	vni[1] = (__u8)(src >> 8);
+	vni[2] = (__u8)src;
 }
 
 __ALWAYS_INLINE__
@@ -244,36 +260,34 @@ static inline void trn_update_l4_csum_port(__u64 *csum, __be16 old_port,
 }
 
 __ALWAYS_INLINE__
-static inline void trn_set_arp_ha(void *ha, unsigned char *mac)
+static inline int trn_is_mac_equal(unsigned char *s, unsigned char *d)
 {
-	unsigned short *p = ha;
-	unsigned short *dst = (unsigned short *)mac;
+	return ((d[0] == s[0] && d[1] == s[1] && d[2] == s[2])? 1 : 0);
+}
 
-	p[0] = dst[0];
-	p[1] = dst[1];
-	p[2] = dst[2];
+__ALWAYS_INLINE__
+static inline void trn_set_mac(void *dst, unsigned char *mac)
+{
+	unsigned short *d = dst;
+	unsigned short *s = (unsigned short *)mac;
+
+	d[0] = s[0];
+	d[1] = s[1];
+	d[2] = s[2];
 }
 
 __ALWAYS_INLINE__
 static inline void trn_set_dst_mac(void *data, unsigned char *dst_mac)
 {
-	unsigned short *p = data;
-	unsigned short *dst = (unsigned short *)dst_mac;
-
-	p[0] = dst[0];
-	p[1] = dst[1];
-	p[2] = dst[2];
+	trn_set_mac(data, dst_mac);
 }
 
 __ALWAYS_INLINE__
 static inline void trn_set_src_mac(void *data, unsigned char *src_mac)
 {
 	unsigned short *p = data;
-	unsigned short *src = (unsigned short *)src_mac;
 
-	p[3] = src[0];
-	p[4] = src[1];
-	p[5] = src[2];
+	trn_set_mac(&p[3], src_mac);
 }
 
 __ALWAYS_INLINE__
@@ -507,9 +521,9 @@ __ALWAYS_INLINE__
 static inline void trn_reset_rts_opt(struct transit_packet *pkt)
 
 {
-	pkt->rts_opt->type = 0;
-	pkt->rts_opt->length = 0;
-	__builtin_memset(&pkt->rts_opt->rts_data, 0,
+	pkt->overlay.geneve.rts_opt->type = 0;
+	pkt->overlay.geneve.rts_opt->length = 0;
+	__builtin_memset(&pkt->overlay.geneve.rts_opt->rts_data, 0,
 			 sizeof(struct trn_gnv_rts_data));
 }
 
@@ -517,8 +531,8 @@ __ALWAYS_INLINE__
 static inline void trn_reset_scaled_ep_opt(struct transit_packet *pkt)
 
 {
-	pkt->scaled_ep_opt->type = 0;
-	pkt->scaled_ep_opt->length = 0;
-	__builtin_memset(&pkt->scaled_ep_opt->scaled_ep_data, 0,
+	pkt->overlay.geneve.scaled_ep_opt->type = 0;
+	pkt->overlay.geneve.scaled_ep_opt->length = 0;
+	__builtin_memset(&pkt->overlay.geneve.scaled_ep_opt->scaled_ep_data, 0,
 			 sizeof(struct trn_gnv_scaled_ep_data));
 }

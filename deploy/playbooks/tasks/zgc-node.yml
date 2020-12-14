@@ -11,6 +11,17 @@
 # Provision ZGC node  
 # ----------------------------------------------------
 
+- name: update apt
+  apt: update_cache=yes
+  become: yes
+
+- name: install additional packages
+  apt: pkg={{ item }} state=latest
+  become: yes
+  with_items:
+    - gdb
+    - rpcbind
+
 - name: "Copy ZGC node executables to /trn_bin"
   become: yes
   copy:
@@ -22,7 +33,7 @@
 - name: "Copy ZGC node pbf objects to /trn_xdp"
   become: yes
   copy:
-      src: ../../build/xdp/
+      src: ../../build/xdp/*.o
       dest: /trn_xdp
       force: yes
 

@@ -7,14 +7,15 @@
 # Summary: Zeta-manager service Dockerfile
 #
 # base image
-FROM python:3.8.1-slim
+#FROM python:3.8.1-slim
+FROM fwnetworking/python_base:latest
 
 # set working directory
 WORKDIR /opt/zeta/manager
 
 # Add app
-COPY build/manager /opt/zeta/manager
-COPY build/bin /opt/zeta/bin
+COPY build/manager /opt/zeta/manager/
+COPY build/bin /opt/zeta/bin/
 
 # install netcat and manager
 RUN apt-get update && \

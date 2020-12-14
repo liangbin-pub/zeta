@@ -18,10 +18,23 @@ from project.api.models import Port
 from project.api.models import Host
 from project.api.models import EP
 from project import db
-
+from project.api.settings import node_ips, vnis
+from common.rpc import TrnRpc
 
 ports_blueprint = Blueprint('ports', __name__)
 
+eps = []
+
+def ports_update_eps_config():
+    eps_conf = {
+        'size': len(eps),
+        'eps': eps
+    }
+    for ip in node_ips:
+        rpc = TrnRpc(ip)
+        rpc.update_droplet(eps_conf)
+        del rpc
+    eps.clear()
 
 @ports_blueprint.route('/ports', methods=['GET', 'POST'])
 def all_ports():
@@ -49,7 +62,16 @@ def all_ports():
 
             db.session.add(port)
             db.session.commit()
+            ep = {
+                "vni": vnis.get(post_data.get('vpc_id')),
+                "ip": post_data['ips_port'][0]['ip'],
+                "hip": post_data.get('ip_node'),
+                "mac": post_data.get('mac_port'),
+                "hmac": post_data.get('mac_node')
+            }
+            eps.append(ep)
         response_object = portList
+        ports_update_eps_config()
     else:
         response_object = [port.to_json() for port in Port.query.all()]
     return jsonify(response_object)

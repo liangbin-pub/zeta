@@ -25,129 +25,78 @@
 #include "trn_cli.h"
 
 int trn_cli_parse_ep_key(const cJSON *jsonobj,
-			 struct rpc_trn_endpoint_key_t *ep)
+			 struct rpc_trn_endpoint_key_t *epk)
 {
-	cJSON *tunnel_id = cJSON_GetObjectItem(jsonobj, "tunnel_id");
-	cJSON *ip = cJSON_GetObjectItem(jsonobj, "ip");
 
-	if (tunnel_id == NULL) {
-		ep->tunid = 0;
-		print_err("Warning: Tunnel ID default is used: %d\n",
-			  ep->tunid);
-	} else if (cJSON_IsString(tunnel_id)) {
-		ep->tunid = atoi(tunnel_id->valuestring);
-	} else {
-		print_err("Error: Tunnel ID Error\n");
+	if (trn_cli_parse_json_number(jsonobj, "vni", (int *)&epk->vni)) {
 		return -EINVAL;
 	}
 
-	if (ip != NULL && cJSON_IsString(ip)) {
-		struct sockaddr_in sa;
-		inet_pton(AF_INET, ip->valuestring, &(sa.sin_addr));
-		ep->ip = sa.sin_addr.s_addr;
-	} else {
-		print_err("Error: IP is missing or non-string\n");
+	if (trn_cli_parse_json_ip(jsonobj, "ip", &epk->ip)) {
 		return -EINVAL;
 	}
 
 	return 0;
 }
 
-int trn_cli_parse_ep(const cJSON *jsonobj, struct rpc_trn_endpoint_t *ep)
+int trn_cli_parse_ep(const cJSON *jsonobj, rpc_trn_endpoint_batch_t *batch)
 {
-	cJSON *tunnel_id = cJSON_GetObjectItem(jsonobj, "tunnel_id");
-	cJSON *ip = cJSON_GetObjectItem(jsonobj, "ip");
-	cJSON *eptype = cJSON_GetObjectItem(jsonobj, "eptype");
-	cJSON *mac = cJSON_GetObjectItem(jsonobj, "mac");
-	cJSON *veth = cJSON_GetObjectItem(jsonobj, "veth");
-	cJSON *remote_ips = cJSON_GetObjectItem(jsonobj, "remote_ips");
-	cJSON *remote_ip = NULL;
-	cJSON *hosted_iface = cJSON_GetObjectItem(jsonobj, "hosted_iface");
+	cJSON *eps = cJSON_GetObjectItem(jsonobj, "eps");
 
-	if (veth == NULL) {
-		ep->veth = NULL;
-		print_err("Warning: missing veth.\n");
-	} else if (cJSON_IsString(
-			   veth)) { // This transit is hosting the endpoint
-		strcpy(ep->veth, veth->valuestring);
-	}
-
-	if (hosted_iface == NULL) {
-		ep->hosted_interface = NULL;
-		print_err(
-			"Warning: missing hosted interface, using default.\n");
-	} else if (cJSON_IsString(
-			   hosted_iface)) { // This transit is hosting the endpoint
-		strcpy(ep->hosted_interface, hosted_iface->valuestring);
-	}
-
-	if (tunnel_id == NULL) {
-		ep->tunid = 0;
-		print_err("Warning: Tunnel ID default is used: %d\n",
-			  ep->tunid);
-	} else if (cJSON_IsString(tunnel_id)) {
-		ep->tunid = atoi(tunnel_id->valuestring);
-	} else {
-		print_err("Error: Tunnel ID Error\n");
+	if (trn_cli_parse_json_number(jsonobj, "size",
+		(int *)&batch->rpc_trn_endpoint_batch_t_len)) {
+		return -EINVAL;
+	} else if (batch->rpc_trn_endpoint_batch_t_len >= TRAN_MAX_EP_BATCH_SIZE) {
+		print_err("Too many elements in batch\n");
 		return -EINVAL;
 	}
 
-	if (ip != NULL && cJSON_IsString(ip)) {
-		struct sockaddr_in sa;
-		inet_pton(AF_INET, ip->valuestring, &(sa.sin_addr));
-		ep->ip = sa.sin_addr.s_addr;
-	} else {
-		print_err("Error: IP is missing or non-string\n");
-		return -EINVAL;
-	}
-
-	if (eptype == NULL) {
-		ep->eptype = 0;
-		print_err("Warning: EP TYpe (default): %d\n", ep->eptype);
-	} else if (cJSON_IsString(eptype)) {
-		ep->eptype = atoi(eptype->valuestring);
-	} else {
-		print_err("Error: eptype ID Error\n");
-		return -EINVAL;
-	}
-
-	if (mac != NULL && cJSON_IsString(mac)) {
-		if (6 == sscanf(mac->valuestring,
-				"%hhx:%hhx:%hhx:%hhx:%hhx:%hhx%*c", &ep->mac[0],
-				&ep->mac[1], &ep->mac[2], &ep->mac[3],
-				&ep->mac[4], &ep->mac[5])) {
-		} else {
-			/* invalid mac */
-			print_err("Error: Invalid MAC\n");
-			return -EINVAL;
-		}
-	} else {
-		print_err("MAC is missing or non-string\n");
+	rpc_trn_endpoint_t *items = (rpc_trn_endpoint_t *)malloc(
+		sizeof(rpc_trn_endpoint_t) * batch->rpc_trn_endpoint_batch_t_len);
+	if (!items) {
+		print_err("Failed to allocate RPC message\n");
 		return -EINVAL;
 	}
 
 	int i = 0;
-	ep->remote_ips.remote_ips_len = 0;
-	cJSON_ArrayForEach(remote_ip, remote_ips)
+	rpc_trn_endpoint_t *item = items;
+	cJSON *ep;
+	cJSON_ArrayForEach(ep, eps)
 	{
-		if (cJSON_IsString(remote_ip)) {
-			struct sockaddr_in sa;
-			inet_pton(AF_INET, remote_ip->valuestring,
-				  &(sa.sin_addr));
-			ep->remote_ips.remote_ips_val[i] = sa.sin_addr.s_addr;
-			ep->remote_ips.remote_ips_len++;
-		} else {
-			print_err("Error: Remote IP is non-string\n");
-			return -EINVAL;
+		if (i >= batch->rpc_trn_endpoint_batch_t_len) {
+			print_err("More items in array than claimed in size\n");
+			goto cleanup;
 		}
+
+		if (trn_cli_parse_json_number(ep, "vni", (int *)&item->vni)) {
+			goto cleanup;
+		}
+
+		if (trn_cli_parse_json_ip(ep, "ip", &item->ip)) {
+			goto cleanup;
+		}
+
+		if (trn_cli_parse_json_ip(ep, "hip", &item->hip)) {
+			goto cleanup;
+		}
+
+		if (trn_cli_parse_json_mac(ep, "mac", &item->mac[0])) {
+			goto cleanup;
+		}
+
+		if (trn_cli_parse_json_mac(ep, "hmac", &item->hmac[0])) {
+			goto cleanup;
+		}
+
+		item++;
 		i++;
-		if (i == RPC_TRN_MAX_REMOTE_IPS) {
-			print_err("Warning: Remote IPS reached max limited\n");
-			break;
-		}
 	}
 
+	batch->rpc_trn_endpoint_batch_t_val = items;
 	return 0;
+cleanup:
+	free(items);
+	return -EINVAL;
 }
 
 int trn_cli_update_ep_subcmd(CLIENT *clnt, int argc, char *argv[])
@@ -168,26 +117,23 @@ int trn_cli_update_ep_subcmd(CLIENT *clnt, int argc, char *argv[])
 	}
 
 	int *rc;
-	rpc_trn_endpoint_t ep;
+	rpc_trn_endpoint_batch_t ep_batch = {0, NULL};
 	char rpc[] = "update_ep_1";
 
-	char veth[20];
-	char hosted_itf[20];
-	uint32_t remote_ips[RPC_TRN_MAX_REMOTE_IPS];
-	ep.remote_ips.remote_ips_val = remote_ips;
-	ep.veth = veth;
-	ep.hosted_interface = hosted_itf;
-	ep.interface = conf.intf;
-
-	int err = trn_cli_parse_ep(json_str, &ep);
+	int err = trn_cli_parse_ep(json_str, &ep_batch);
 	cJSON_Delete(json_str);
 
 	if (err != 0) {
-		print_err("Error: parsing endpoint config.\n");
+		print_err("Error: parsing endpoint config batch.\n");
 		return -EINVAL;
 	}
 
-	rc = update_ep_1(&ep, clnt);
+	rc = update_ep_1(&ep_batch, clnt);
+
+	if (ep_batch.rpc_trn_endpoint_batch_t_val) {
+		free(ep_batch.rpc_trn_endpoint_batch_t_val);
+	}
+
 	if (rc == (int *)NULL) {
 		print_err("RPC Error: client call failed: update_ep_1.\n");
 		return -EINVAL;
@@ -200,10 +146,7 @@ int trn_cli_update_ep_subcmd(CLIENT *clnt, int argc, char *argv[])
 		return -EINVAL;
 	}
 
-	dump_ep(&ep);
-	print_msg(
-		"update_ep_1 successfully updated endpoint %d on interface %s.\n",
-		ep.ip, ep.interface);
+	print_msg("update_ep_1 successful\n");
 	return 0;
 }
 
@@ -227,7 +170,6 @@ int trn_cli_get_ep_subcmd(CLIENT *clnt, int argc, char *argv[])
 	rpc_trn_endpoint_key_t epkey;
 	rpc_trn_endpoint_t *ep;
 	char rpc[] = "get_ep_1";
-	epkey.interface = conf.intf;
 
 	int err = trn_cli_parse_ep_key(json_str, &epkey);
 	cJSON_Delete(json_str);
@@ -238,15 +180,14 @@ int trn_cli_get_ep_subcmd(CLIENT *clnt, int argc, char *argv[])
 	}
 
 	ep = get_ep_1(&epkey, clnt);
-	if (ep == NULL || strlen(ep->interface) == 0) {
+	if (ep == NULL) {
 		print_err("RPC Error: client call failed: get_ep_1.\n");
 		return -EINVAL;
 	}
 
 	dump_ep(ep);
 	print_msg(
-		"get_ep_1 successfully queried endpoint %d on interface %s.\n",
-		ep->ip, ep->interface);
+		"get_ep_1 successfully queried endpoint 0x%08x.\n", ep->ip);
 
 	return 0;
 }
@@ -271,7 +212,6 @@ int trn_cli_delete_ep_subcmd(CLIENT *clnt, int argc, char *argv[])
 	int *rc;
 	rpc_trn_endpoint_key_t ep_key;
 	char rpc[] = "delete_ep_1";
-	ep_key.interface = conf.intf;
 
 	int err = trn_cli_parse_ep_key(json_str, &ep_key);
 	cJSON_Delete(json_str);
@@ -295,8 +235,7 @@ int trn_cli_delete_ep_subcmd(CLIENT *clnt, int argc, char *argv[])
 	}
 
 	print_msg(
-		"delete_ep_1 successfully deleted endpoint %d on interface %s.\n",
-		ep_key.ip, ep_key.interface);
+		"delete_ep_1 successfully deleted endpoint 0x%08x.\n", ep_key.ip);
 
 	return 0;
 }
@@ -305,17 +244,11 @@ void dump_ep(struct rpc_trn_endpoint_t *ep)
 {
 	int i;
 
-	print_msg("Interface: %s\n", ep->interface);
-	print_msg("Tunnel ID: %d\n", ep->tunid);
+	print_msg("VNI: %d\n", ep->vni);
 	print_msg("IP: 0x%x\n", ep->ip);
-	print_msg("Hosted Interface: %s\n", ep->hosted_interface);
-	print_msg("veth: %s\n", ep->veth);
-	print_msg("EP Type: %d\n", ep->eptype);
-	print_msg("Remote IPs: [");
-	for (i = 0; i < ep->remote_ips.remote_ips_len; i++) {
-		print_msg("0x%x", ntohl(ep->remote_ips.remote_ips_val[i]));
-		if (i < ep->remote_ips.remote_ips_len - 1)
-			print_msg(", ");
-	}
-	print_msg("]\n");
+	print_msg("MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
+		ep->mac[0],ep->mac[1],ep->mac[2],ep->mac[3],ep->mac[4],ep->mac[5]);
+	print_msg("Host IP: 0x%x\n", ep->hip);
+	print_msg("Host MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
+		ep->hmac[0],ep->hmac[1],ep->hmac[2],ep->hmac[3],ep->hmac[4],ep->hmac[5]);
 }

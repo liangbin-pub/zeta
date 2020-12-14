@@ -85,18 +85,19 @@ BPF_ANNOTATE_KV_PAIR(hosted_endpoints_iface_map, struct endpoint_key_t, int);
 
 struct bpf_map_def SEC("maps") interface_config_map = {
 	.type = BPF_MAP_TYPE_ARRAY,
-	.key_size = sizeof(int),
+	.key_size = sizeof(__u32),
 	.value_size = sizeof(struct tunnel_iface_t),
-	.max_entries = 1,
+	.max_entries = TRAN_MAX_ITF,
 	.map_flags = 0,
 };
 BPF_ANNOTATE_KV_PAIR(interface_config_map, int, struct tunnel_iface_t);
 
+/* Host specific interface map used for packet redirect */
 struct bpf_map_def SEC("maps") interfaces_map = {
 	.type = BPF_MAP_TYPE_DEVMAP,
 	.key_size = sizeof(int),
 	.value_size = sizeof(int),
-	.max_entries = TRAN_MAX_ITF,
+	.max_entries = TRAN_ITF_MAP_MAX,
 };
 BPF_ANNOTATE_KV_PAIR(interface_map, int, int);
 
